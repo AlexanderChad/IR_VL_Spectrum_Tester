@@ -21,9 +21,7 @@ const char Krt[4] = {124, 47, 45, 92};
 uint8_t KrtCn = 0;
 
 void setup() {
-  //достаем сохраненные ранее калибровки яркости диодов
-  EEPROM.get((int)&VL_PWM_addr, VL_PWM); // для светодиода
-  EEPROM.get((int)&IR_PWM_addr, IR_PWM); // для ИК диода
+  RCal(); //достаем сохраненные ранее калибровки яркости диодов
 
   pinMode(A5, INPUT_PULLUP); //кнопка для калибровки
   pinMode(IR_LED, OUTPUT); //PWM выход на ИК диод
@@ -55,32 +53,68 @@ void setup() {
 
 uint8_t L_Set = 0; //номер пина, который переводится в режим ШИМ (программной)
 uint8_t Bt_cal = 0; //флаг удержания кнопки (для перехода в режим калибровки)
-uint8_t Bt_CT = 0; //счетчик, нужен для определения удержания кнопки
+//uint8_t Bt_CT = 0; //счетчик, нужен для определения удержания кнопки
 float sensor_IR; //значение на фотодиоде при облучении ИК
 float sensor_VL; //значение на фотодиоде при облучении видимым спектром
+uint8_t UglAnalysisCn = 0; //счетчик проходов углубленного анализа
 
 void loop() {
 
-  if (digitalRead(A5)) { //опрос кнопки
-    Bt_CT = 0;
-  } else {
-    if (Bt_CT > 3) {
-      Bt_cal = !Bt_cal;
+  //опрос кнопки
+  /*
+    if (digitalRead(A5)) {
+      Bt_CT = 0;
+    } else {
+      if (Bt_CT > 3) {
+        Bt_cal = !Bt_cal;
+      }
+      Bt_CT++;
+    }*/
+
+  if (!digitalRead(A5)) {
+    delay(150);
+    if (!digitalRead(A5)) {
+      Bt_cal = 1;
+    } else {
+      Bt_cal = 0;
     }
-    Bt_CT++;
+  }
+  if (Bt_cal) {
+    RCal(); //достаем сохраненные ранее калибровки яркости диодов
+    Serial.println("UglAnalysis RUN!");
+    UglAnalysis(); //углубленный анализ
+    UglAnalysisCn = 1;
+    Bt_cal = 0;
+  }
+  if (UglAnalysisCn) {
+    if (UglAnalysisCn > 3) {
+      UglAnalysisCn = 0;
+      RCal(); //достаем сохраненные ранее калибровки яркости диодов
+      Serial.println("UglAnalysis END!");
+    } else {
+      lcd.setCursor(0, 0);
+      lcd.print(UglAnalysisCn);
+      UglAnalysisCn++;
+    }
   }
 
+
   //начинаем калибровку при поднятом флаге удержании кнопки или по принятому в Serial символу 'c'
-  if (Bt_cal || Serial.read() == 'c') {
-    //рисуем на дисплее сообщение о процессе калибровки
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("IR/VL Spect.Test");
-    lcd.setCursor(0, 1);
-    lcd.print("Calibration...");
-    CalibrationSensor(); //функция калибровки яркости диодов
-    Bt_cal = 0;
-    PrintBg(); //рисуем на дисплее фон с названиеми значений
+  switch (Serial.read()) {
+    case 'c':
+      //рисуем на дисплее сообщение о процессе калибровки
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("IR/VL Spect.Test");
+      lcd.setCursor(0, 1);
+      lcd.print("Calibration...");
+      CalibrationSensor(); //функция калибровки яркости диодов
+      //Bt_cal = 0;
+      PrintBg(); //рисуем на дисплее фон с названиеми значений
+      break;
+    case 'a':
+      Bt_cal = 1;
+      break;
   }
 
   /*
@@ -149,17 +183,56 @@ void loop() {
     KrtCn = 0;
   }
 
-  Serial.print("IR:");
+  Serial.print("IR_PWM:");
+  Serial.print(IR_PWM);
+  Serial.print(", IR:");
   Serial.print(sensor_IR);
   Serial.print(", IR:");
   Serial.print(PStr_PR_IR);
-  Serial.print("%, VL:");
+  Serial.print("%, VL_PWM:");
+  Serial.print(VL_PWM);
+  Serial.print(", VL:");
   Serial.print(sensor_VL);
   Serial.print(", VL:");
   Serial.print(PStr_PR_VL);
   Serial.print("%");
   Serial.print(", Koef:");
   Serial.println(sensor_IR / sensor_VL);
+}
+void RCal() { //достаем сохраненные ранее калибровки яркости диодов
+  EEPROM.get((int)&VL_PWM_addr, VL_PWM); // для светодиода
+  EEPROM.get((int)&IR_PWM_addr, IR_PWM); // для ИК диода
+}
+
+void UglAnalysis() {
+  float Del_VL = (sensor_VL - sensor_min) / sensor_max;
+  float Del_IR = (sensor_IR - sensor_min) / sensor_max;
+  float VL_PWM_NF;
+  float IR_PWM_NF;
+  if (Del_VL > Del_IR) {
+    VL_PWM_NF = (float)VL_PWM / Del_VL;
+    IR_PWM_NF = (float)IR_PWM / Del_VL;
+  } else {
+    VL_PWM_NF = (float)VL_PWM / Del_IR;
+    IR_PWM_NF = (float)IR_PWM / Del_IR;
+  }
+  if (VL_PWM_NF > IR_PWM_NF) {
+    if (VL_PWM_NF > 65530) {
+      IR_PWM = (uint16_t)(IR_PWM_NF * ((float)65530 / VL_PWM_NF));
+      VL_PWM = 65530;
+    } else {
+      IR_PWM = (uint16_t)IR_PWM_NF;
+      VL_PWM = (uint16_t)VL_PWM_NF;
+    }
+  } else {
+    if (IR_PWM_NF > 65530) {
+      VL_PWM = (uint16_t)(VL_PWM_NF * ((float)65530 / IR_PWM_NF));
+      IR_PWM = 65530;
+    } else {
+      IR_PWM = (uint16_t)IR_PWM_NF;
+      VL_PWM = (uint16_t)VL_PWM_NF;
+    }
+  }
 }
 
 void CalibrationSensor() {
