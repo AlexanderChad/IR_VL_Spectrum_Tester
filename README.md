@@ -13,7 +13,9 @@
 ```
 IR/VL Spect.Test is begin
 IR_PWM:9152, IR:681.96, IR:096%, VL_PWM:24128, VL:704.49, VL:099%, Koef:0.97
+...
 IR_PWM:9152, IR:4.00, IR:000%, VL_PWM:24128, VL:41.15, VL:005%, Koef:0.10
+...
 UglAnalysis RUN!
 IR_PWM:24856, IR:267.01, IR:037%, VL_PWM:65530, VL:4.00, VL:000%, Koef:66.75
 ...
